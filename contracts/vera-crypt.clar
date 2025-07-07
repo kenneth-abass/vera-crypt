@@ -177,3 +177,72 @@
     }))
   )
 )
+
+(define-public (verify-proof (proof-hash (buff 32)))
+  (let (
+      (proof (map-get? zero-knowledge-proofs proof-hash))
+      (sender tx-sender)
+    )
+    (asserts! (is-some proof) ERR-INVALID-PROOF)
+    (asserts! (is-eq sender (var-get admin)) ERR-NOT-AUTHORIZED)
+    (ok (map-set zero-knowledge-proofs proof-hash
+      (merge (unwrap-panic proof) { verified: true })
+    ))
+  )
+)
+
+;; CREDENTIAL LIFECYCLE MANAGEMENT
+
+(define-public (issue-credential
+    (subject principal)
+    (claim-hash (buff 32))
+    (expiration uint)
+    (metadata (string-utf8 256))
+  )
+  (let (
+      (sender tx-sender)
+      (current-nonce (var-get credential-nonce))
+      (credential-id {
+        issuer: sender,
+        nonce: current-nonce,
+      })
+      (issuer-identity (map-get? identities sender))
+      (subject-identity (map-get? identities subject))
+    )
+    ;; Validate all credential parameters
+    (asserts! (is-some issuer-identity) ERR-NOT-REGISTERED)
+    (asserts! (is-some subject-identity) ERR-NOT-REGISTERED)
+    (asserts! (is-valid-hash claim-hash) ERR-INVALID-INPUT)
+    (asserts! (is-valid-expiration expiration) ERR-INVALID-EXPIRATION)
+    (asserts! (is-valid-metadata-length metadata) ERR-INVALID-INPUT)
+    ;; Increment nonce and create credential
+    (var-set credential-nonce (+ current-nonce u1))
+    (ok (map-set credentials credential-id {
+      subject: subject,
+      claim-hash: claim-hash,
+      expiration: expiration,
+      revoked: false,
+      metadata: metadata,
+    }))
+  )
+)
+
+(define-public (revoke-credential
+    (issuer principal)
+    (nonce uint)
+  )
+  (let (
+      (sender tx-sender)
+      (credential-id {
+        issuer: issuer,
+        nonce: nonce,
+      })
+      (credential (map-get? credentials credential-id))
+    )
+    (asserts! (is-some credential) ERR-INVALID-CREDENTIAL)
+    (asserts! (is-eq sender issuer) ERR-NOT-AUTHORIZED)
+    (ok (map-set credentials credential-id
+      (merge (unwrap-panic credential) { revoked: true })
+    ))
+  )
+)
